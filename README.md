@@ -1,282 +1,188 @@
 # 🤖 AI-Powered LinkedIn Content Automation
 
-An end-to-end automation system that takes raw content ideas from a Google Sheet and turns them into **AI-written, AI-illustrated, human-approved LinkedIn posts** — fully automatically.
+> An end-to-end automation system that takes raw content ideas from a Google Sheet and turns them into **AI-written, AI-illustrated, human-approved LinkedIn posts** — fully automatically.
 
-Built on **n8n** with **Google Vertex AI**, **Gemini**, **DALL-E**, and **Gmail** for a real production client.
+Built with **n8n** · **Google Vertex AI** · **Gemini** · **DALL-E** · **Gmail** · **LinkedIn API**
 
 ---
 
-## 🧩 What Problem Does This Solve?
+## 🧩 The Problem
 
-Creating consistent LinkedIn content manually is slow, repetitive, and easy to forget. This system automates the **entire pipeline** — from writing to image generation to scheduling — while keeping a human in control of every post before it goes live.
+Creating consistent LinkedIn content manually is **slow, repetitive, and inconsistent.**
 
-| Before | After |
+| ❌ Before | ✅ After |
 |---|---|
 | Manually write post text | AI writes it from a content brief |
-| Manually find/create images | AI generates a custom image |
+| Manually find or create images | AI generates a custom branded image |
 | Manually copy-paste to LinkedIn | Auto-posted via LinkedIn API |
-| No approval process | Gmail-based approve/reject loop |
+| No review process | Gmail-based approve/reject loop |
 | Hours per week | Minutes per week |
 
 ---
 
-## 🔁 System Overview — Two Trigger Flows
+## 🗺️ System Overview — Two Entry Points
 
-The system has **two independent trigger paths** that eventually converge into the same posting pipeline.
+The system has **two independent trigger paths** that converge into the same AI pipeline.
 
 ```
-┌─────────────────────────────┐     ┌──────────────────────────────┐
-│   FLOW 1: On-Demand         │     │   FLOW 2: Scheduled          │
-│   Google Sheets Trigger     │     │   Schedule Trigger (Timer)   │
-│   (fires on sheet update)   │     │   (fires at set time)        │
-└────────────┬────────────────┘     └──────────────┬───────────────┘
-             │                                      │
-             ▼                                      ▼
-    Check: Already Posted                  Read pending rows
-    or Rejected? Skip.                     from Google Sheet
-             │                                      │
-             ▼                                      ▼
-    Update Status → "In Progress"       Check Scheduled Date/Time
-             │                          (Australia/Sydney timezone)
-             ▼                                      │
-    Extract Required Fields                         ▼
-             │                            Is it time to post?
-             ▼                                      │
-    ┌────────────────────────┐                      │
-    │   AI CONTENT ENGINE    │◄─────────────────────┘
-    └────────────────────────┘
+╔═══════════════════════════╗        ╔════════════════════════════╗
+║   TRIGGER 1 — On Demand   ║        ║   TRIGGER 2 — Scheduled    ║
+║   Google Sheets Update    ║        ║   Runs on a set timer      ║
+╚═══════════════╦═══════════╝        ╚══════════════╦═════════════╝
+                ║                                   ║
+                ▼                                   ▼
+       Already posted/rejected?          Read all pending rows
+       → Skip it                         from Google Sheet
+                ║                                   ║
+                ▼                                   ▼
+       Mark status: In Progress          Check date & time
+                ║                        (Australia/Sydney TZ) ⭐
+                ║                                   ║
+                ╚══════════════╦════════════════════╝
+                               ▼
+                    ┌─────────────────────┐
+                    │  AI CONTENT ENGINE  │
+                    └─────────────────────┘
 ```
 
 ---
 
-## 🧠 Phase 1 — AI Content Generation
+## 📸 Full Workflow — Part 1
+### Trigger → Status Check → AI Text Generation
 
-Once triggered, the system uses **3 specialized AI agents** powered by Google Vertex AI / Gemini to generate content.
+![Workflow Part 1](workflow-part1.png.png)
 
-```
-Post Fields (title, topic, brief)
-             │
-             ▼
-┌────────────────────────────────┐
-│  Agent 1: LinkedIn Post        │
-│  Text Agent                    │
-│  → Writes full LinkedIn post   │
-│  → Has conversation memory     │
-│  → Uses Google Vertex AI       │
-└────────────┬───────────────────┘
-             │
-             ▼
-┌────────────────────────────────┐
-│  Make Content Bold             │
-│  → Converts **text** to        │
-│    Unicode bold characters     │
-│    (𝗹𝗶𝗸𝗲 𝘁𝗵𝗶𝘀) for LinkedIn   │
-│  ⭐ Special Feature            │
-└────────────┬───────────────────┘
-             │
-             ▼
-    Does post need an image?
-      YES ──────► Phase 2
-      NO  ──────► Phase 3 (Approval)
-```
+**What's happening here:**
+- `Google Sheets Trigger` fires when a row is updated
+- `Switch1` checks: is this post already **Posted** or **Rejected**? If yes → skip
+- Status is updated to **"In Progress"** in the sheet
+- Required fields are extracted and passed to the **LinkedIn Post Text Agent**
+- The AI agent (powered by Google Vertex AI) writes the full LinkedIn post
+- A custom JS node converts `**bold text**` → Unicode bold characters `𝗹𝗶𝗸𝗲 𝘁𝗵𝗶𝘀` ⭐
 
-> ⭐ **Bold Text Feature:** LinkedIn doesn't support native bold formatting. This system uses a custom JavaScript node that converts `**text**` markdown into Unicode bold characters, making posts visually stand out in the feed.
-
-![AI Generation + Image Pipeline](workflow-part2.png)
-*AI agents (left) feed into image generation pipeline (right)*
+> ⭐ **Unicode Bold:** LinkedIn has no native bold support. This system converts markdown bold syntax into Unicode bold characters so posts visually stand out in the feed — something most automation tools miss entirely.
 
 ---
 
-## 🎨 Phase 2 — AI Image Generation & Compositing
+## 📸 Full Workflow — Part 2
+### AI Image Generation → Compositing Pipeline
 
-If the post requires an image, a full image pipeline kicks in.
+![Workflow Part 2](workflow-part2.png.png)
 
-```
-             ▼
-┌────────────────────────────────┐
-│  Agent 2: Concept Logic Agent  │
-│  → Analyzes the LinkedIn post  │
-│  → Extracts visual concept     │
-│  → Returns structured JSON:    │
-│    { core_idea, visual_metaphor│
-│      layout, key_elements }    │
-└────────────┬───────────────────┘
-             │
-             ▼
-┌────────────────────────────────┐
-│  Agent 3: Image Prompt Agent   │
-│  → Takes concept JSON +        │
-│    original post text          │
-│  → Writes optimized DALL-E     │
-│    image generation prompt     │
-└────────────┬───────────────────┘
-             │
-             ▼
-┌────────────────────────────────┐
-│  DALL-E Image Generation       │
-│  → Generates AI image from     │
-│    the crafted prompt          │
-└────────────┬───────────────────┘
-             │
-             ▼
-┌────────────────────────────────────────────┐
-│  Image Compositing Pipeline  ⭐            │
-│                                            │
-│  Download Brand Logo (Google Drive)        │
-│           +                                │
-│  AI Generated Image                        │
-│           ↓                                │
-│  Get metadata of both images               │
-│           ↓                                │
-│  Rename binaries separately                │
-│           ↓                                │
-│  Merge both into single item               │
-│           ↓                                │
-│  Calculate overlay position                │
-│  (right-bottom corner)                     │
-│           ↓                                │
-│  Composite: Logo overlaid on AI image      │
-│           ↓                                │
-│  Upload final image → Google Drive         │
-└────────────┬───────────────────────────────┘
-             │
-             ▼
-         Phase 3 (Approval)
-```
+**What's happening here:**
+- After text is generated, the system checks: **does this post need an image?**
+- If yes → **Concept Logic Agent** analyzes the post and extracts a visual concept as structured JSON
+- **LinkedIn Post Image Agent** takes that concept and writes an optimized DALL-E prompt
+- **DALL-E** generates the AI image
+- The **Image Compositing Pipeline** then: ⭐
+  - Downloads the brand logo from Google Drive
+  - Gets metadata (dimensions) of both images
+  - Renames binaries to avoid conflicts
+  - Merges both into a single item
+  - Calculates the exact pixel position for logo placement (bottom-right)
+  - Composites logo on top of AI image
+  - Uploads final branded image to Google Drive
 
-> ⭐ **Image Compositing Feature:** The system doesn't just generate images — it programmatically overlays the client's brand logo onto every AI-generated image at a calculated position, maintaining brand consistency automatically.
+> ⭐ **Auto Brand Compositing:** Every AI-generated image automatically gets the client's logo overlaid at a calculated position — maintaining brand consistency without any manual work.
 
 ---
 
-## ✅ Phase 3 — Human Approval Loop
+## 📸 Full Workflow — Part 3
+### Human Approval Loop → Smart Retry → LinkedIn Post
 
-Before anything goes live, a human must approve the post.
+![Workflow Part 3](workflow-part3.png.png)
+
+**What's happening here:**
 
 ```
-             ▼
-┌────────────────────────────────┐
-│  Update Status →               │
-│  "Waiting for Response"        │
-└────────────┬───────────────────┘
-             │
-             ▼
-┌────────────────────────────────┐
-│  Send Email via Gmail          │
-│  → Contains post text          │
-│  → Contains image (if any)     │
-│  → Has Approve / Reject        │
-│    buttons inline              │
-│  → Workflow PAUSES here        │
-│    and waits for reply         │
-└────────────┬───────────────────┘
-             │
-    ┌────────┴────────┐
-    ▼                 ▼
- APPROVE           REJECT
-    │                 │
-    ▼                 ▼
-Phase 4          Re-attempt?
-(Posting)            │
-              ┌──────┴──────┐
-              ▼             ▼
-         Max attempts   Under limit
-         reached        → Regenerate
-              │           & resend
+Post is ready (text + optional image)
+              │
               ▼
-         Status →
-         "Rejected"
+   Status → "Waiting for Response"
+              │
+              ▼
+   Gmail sent to human reviewer
+   (contains post + image + Approve/Reject buttons)
+   ⏸️  Workflow PAUSES and waits for reply
+              │
+       ┌──────┴──────┐
+       ▼             ▼
+   APPROVED       REJECTED
+       │             │
+       ▼             ▼
+  Check           Increment
+  schedule        attempt count
+       │             │
+       ▼        ┌────┴────┐
+  Post to       ▼         ▼
+  LinkedIn   Max limit  Under limit
+       │     reached    → Regenerate
+       ▼         │        & resend
+  Status →   Status →
+  "Posted" ✅ "Rejected" ❌
 ```
 
-> ⭐ **Smart Retry Feature:** If a post is rejected, the system checks how many attempts have been made. If under the limit, it regenerates and resends for approval. If max attempts are reached, it marks the post as permanently "Rejected" and moves on — no infinite loops.
+> ⭐ **Smart Retry System:** Rejection doesn't kill the workflow. The system increments an attempt counter — if under the limit, it regenerates content and sends a fresh email. If max attempts are hit, it gracefully marks as Rejected and moves on. No infinite loops.
 
-![Approval & Retry Flow](workflow-part3.png)
-*Gmail approval loop (left) with smart retry logic and final posting (right)*
+> ⭐ **Timezone-Aware Scheduling:** Before posting, the JS node converts the scheduled time to Australia/Sydney timezone — so posts go out at exactly the right local time regardless of server location.
 
 ---
 
-## 📤 Phase 4 — Scheduled Posting to LinkedIn
+## 📸 Schedule Trigger Flow
+### Automated Timer-Based Posting
 
-```
-             ▼
-    Is a specific date/time set?
-      YES ──► Is it time yet?
-                YES ──► Post now
-                NO  ──► Save scheduled
-                         time to sheet,
-                         wait for
-                         Schedule Trigger
-      NO  ──► Post immediately
-             │
-             ▼
-    Does post have an image?
-      YES ──► Download from Drive
-               → Create LinkedIn post
-                 with image
-      NO  ──► Create LinkedIn post
-               (text only)
-             │
-             ▼
-    Update Status → "Posted" ✅
-    Update row in Google Sheet
-```
+![Schedule Trigger](workflow-scheduler.png.png)
 
-> ⭐ **Timezone-Aware Scheduling Feature:** The JavaScript scheduling node converts scheduled times to Australia/Sydney timezone before comparison, ensuring posts go out at the exact right local time regardless of server timezone.
-
-![Schedule Trigger Flow](workflow-schedule.png)
-*Automated schedule trigger checks sheet every interval and posts at correct time*
+**What's happening here:**
+- A `Schedule Trigger` fires at regular intervals
+- Fetches all rows from Google Sheet
+- `Date & Time` node + custom JavaScript checks if `Scheduled Date + Time` has arrived
+- If yes → passes to the posting pipeline
+- Checks if post has an image → downloads from Drive if needed
+- Creates LinkedIn post (with or without image)
+- Updates status to **"Posted"** in Google Sheet ✅
 
 ---
 
-## 🔄 Full System Flow (Combined)
+## ⭐ Key Features at a Glance
 
-![Full Workflow Part 1](workflow-part1.png)
-*Trigger → Status checks → AI content generation pipeline*
-
-![Full Workflow Part 2](workflow-part2.png)
-*Image generation → compositing → approval queue*
-
----
-
-## ⭐ Key Features Summary
-
-| Feature | Description |
+| Feature | What it does |
 |---|---|
-| **Dual Triggers** | Works both on-demand (sheet update) and on a schedule |
-| **3 AI Agents** | Separate agents for text, concept analysis, and image prompting |
-| **Unicode Bold** | Converts markdown bold to LinkedIn-compatible unicode characters |
-| **Image Compositing** | Auto-overlays brand logo on every AI-generated image |
-| **Human-in-the-Loop** | No post goes live without human email approval |
-| **Smart Retry** | Auto-regenerates on rejection, stops at max attempt limit |
-| **Timezone Scheduling** | Handles timezone conversion for accurate scheduled posting |
-| **Status Tracking** | Every post tracked in Google Sheets: Pending → In Progress → Posted/Rejected |
-| **Conversation Memory** | AI agents have memory buffers for contextual consistency |
+| 🔀 **Dual Triggers** | On-demand (sheet update) + scheduled timer — both work independently |
+| 🤖 **3 AI Agents** | Separate agents for post writing, concept analysis, and image prompting |
+| 𝗕 **Unicode Bold Text** | Converts `**bold**` markdown into LinkedIn-compatible unicode bold |
+| 🖼️ **Auto Image Compositing** | Brand logo is programmatically overlaid on every AI-generated image |
+| ✅ **Human Approval Loop** | Every post requires explicit email approval before going live |
+| 🔁 **Smart Retry on Reject** | Auto-regenerates content on rejection, stops at a max attempt limit |
+| 🕐 **Timezone Scheduling** | Converts post times to Australia/Sydney TZ for accurate scheduling |
+| 📊 **Full Status Tracking** | Google Sheet tracks every post: Pending → In Progress → Posted / Rejected |
+| 🧠 **Agent Memory** | AI agents use memory buffers for contextual consistency across the session |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Tool | Purpose |
+| Tool | Role |
 |---|---|
-| **n8n** | Automation engine / workflow orchestrator |
-| **Google Vertex AI** | Primary LLM for all 3 AI agents |
-| **Google Gemini** | Fallback LLM model |
+| **n8n** | Automation engine & workflow orchestrator |
+| **Google Vertex AI** | Primary LLM powering all 3 AI agents |
+| **Google Gemini** | Secondary/fallback LLM |
 | **OpenAI DALL-E** | AI image generation |
-| **Google Sheets** | Content calendar & status tracking |
-| **Google Drive** | Image storage |
-| **Gmail** | Human approval email loop |
+| **Google Sheets** | Content calendar & live status tracking |
+| **Google Drive** | Image storage (generated + brand assets) |
+| **Gmail** | Human-in-the-loop approval emails |
 | **LinkedIn API** | Final post publishing |
 
 ---
 
-## 📁 Repository Structure
+## 📁 How to Use
+
+Import the workflow into any n8n instance:
 
 ```
-├── Social_media_posting_prod_copy.json   # Full n8n workflow (importable)
-└── README.md
+Workflows → Import from file → select linkedin.json
 ```
-
-To use: Import the JSON file directly into any n8n instance via **Workflows → Import**.
 
 ---
 
-*Built solo for a real production client. Currently live.*
+*Built solo. Deployed for a real production client. Currently live.*
